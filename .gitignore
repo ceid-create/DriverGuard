@@ -33,3 +33,6 @@ desktop.ini
 .vscode/
 .idea/
 *.code-workspace
+
+# Claude Code IDE settings
+.claude/
