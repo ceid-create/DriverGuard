@@ -1,0 +1,28 @@
+# Secret credentials — never commit real values
+config.py
+
+# Session logs
+logs/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Virtual environment
+venv/
+env/
+.venv/
+
+# YOLO model weights (large binary files)
+*.pt
+*.pth
+runs/
+
+# OS / IDE
+Thumbs.db
+desktop.ini
+.DS_Store
+.vscode/
+.idea/
+*.code-workspace

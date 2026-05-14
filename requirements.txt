@@ -1,0 +1,5 @@
+opencv-python>=4.13.0
+mediapipe==0.10.9
+pygame>=2.6.1
+ultralytics>=8.4.35
+pyserial>=3.5
