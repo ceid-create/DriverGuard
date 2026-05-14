@@ -8,7 +8,7 @@ Made for our Semester 4 Computer Vision project at USJ (Spring 2026).
 
 ## Demo
 
-<!-- TODO: paste YouTube or Google Drive link to CV_Demo.mp4 -->
+https://drive.google.com/file/d/12vXjw39j9jb3cXyNDOe9Tk8lTDKoYL8N/view?usp=drive_link
 
 ---
 
@@ -105,9 +105,10 @@ Trained using YOLOv8n (Ultralytics) fine-tuned on a custom phone detection datas
 | mAP@0.5 | **87.97%** |
 | mAP@0.5–0.95 | 71.7% |
 
-**Dataset:** <!-- TODO: dataset name + source URL -->
+**Dataset:** phone-detection-1jjzq-npgus v1 — Roboflow workspace `joes-workspace-lgbro` (CC BY 4.0)
+3,178 labelled images — Train / Val / Test: 2,934 / 122 / 122 (~92% / 4% / 4%)
 
-**Weights download:** <!-- TODO: Google Drive link to best.pt -->
+**Weights download:** https://drive.google.com/file/d/1qrwW-OPN2WZ7KnbBJD9MT1T6RY_ZNChM/view?usp=drive_link
 
 To reproduce training:
 ```bash

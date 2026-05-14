@@ -4,6 +4,10 @@ Saint Joseph University · Spring 2026
 
 **Authors:** <!-- YOUR NAMES HERE -->
 
+**Demo video:** https://drive.google.com/file/d/12vXjw39j9jb3cXyNDOe9Tk8lTDKoYL8N/view?usp=drive_link
+
+**Model weights:** https://drive.google.com/file/d/1qrwW-OPN2WZ7KnbBJD9MT1T6RY_ZNChM/view?usp=drive_link
+
 ---
 
 ## 1. Introduction
@@ -41,20 +45,19 @@ DriverGuard monitors the driver in real time through a webcam feed and raises au
 
 The phone detection model was trained on a custom dataset of images containing people holding mobile phones.
 
-<!-- TODO: Fill in with your Roboflow/Kaggle dataset details -->
-
 | Property | Value |
 |----------|-------|
-| Dataset name | <!-- e.g. "Phone Detection Dataset v2" --> |
-| Source | <!-- e.g. Roboflow — paste the URL --> |
-| Total images | <!-- e.g. 2,450 --> |
-| Training set | <!-- e.g. 1,960 (80%) --> |
-| Validation set | <!-- e.g. 245 (10%) --> |
-| Test set | <!-- e.g. 245 (10%) --> |
-| Classes | phone (class 1), background (class 0) |
+| Dataset name | phone-detection-1jjzq-npgus v1 |
+| Source | Roboflow — workspace `joes-workspace-lgbro` |
+| License | CC BY 4.0 |
+| Total images | 3,178 (before augmentation) |
+| Training set | 2,934 (~92%) |
+| Validation set | 122 (~4%) |
+| Test set | 122 (~4%) |
+| Classes | phone (class 1), ProductRecog background (class 0) |
 | Image resolution | 640 × 640 (resized during training) |
 
-**Preprocessing:** Images were resized to 640×640. Standard Ultralytics augmentation was applied: random horizontal flip (p=0.5), HSV colour jitter (H±1.5%, S±70%, V±40%), random scale (±50%), and mosaic augmentation.
+**Preprocessing and augmentation:** Images were resized to 640×640. The following augmentations were applied with a 3× multiplier: horizontal flip (50%), random crop (0–20%), Gaussian blur (0–2.5 px).
 
 ### 2.2 Fatigue Detection — No Training Dataset Required
 
@@ -261,4 +264,4 @@ Future work would add per-driver calibration to handle natural posture variation
 
 [4] G. Jocher et al., "Ultralytics YOLOv8," 2023. [Online]. Available: https://github.com/ultralytics/ultralytics
 
-[5] <!-- YOUR DATASET CITATION — e.g. "Phone Detection Dataset, Roboflow Universe, [URL], accessed 2026." -->
+[5] J. Haddad, "phone-detection-1jjzq-npgus," Roboflow Universe, workspace: joes-workspace-lgbro, v1, exported April 8, 2026. License: CC BY 4.0.
