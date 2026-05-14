@@ -12,14 +12,28 @@ import math
 import time
 import pygame
 import csv
+import argparse
 import smtplib
 from email.mime.text import MIMEText
 from datetime import datetime
 from ultralytics import YOLO
 from config   import GMAIL_EXPEDITEUR, GMAIL_MOT_PASSE, GMAIL_DESTINATAIRE
-from hardware import ArduinoHardware
+try:
+    from hardware import ArduinoHardware
+    hw = ArduinoHardware()
+except Exception:
+    class _NoHW:
+        def is_active(self):   return True
+        def send_alarm(self):  pass
+        def disconnect(self):  pass
+    hw = _NoHW()
+    print("[HW] Hardware module unavailable — running in software-only mode")
 
-hw = ArduinoHardware()   # connects to Arduino if present, else software-only mode
+# ---- Eval mode flag ----
+_parser = argparse.ArgumentParser()
+_parser.add_argument("--eval", action="store_true",
+                     help="Run in evaluation mode (press E/Y/F/P to mark events)")
+EVAL_MODE = _parser.parse_args().eval
 
 #  Initialiser le son
 pygame.mixer.init(frequency=44100, size=-16, channels=2, buffer=512)
@@ -80,7 +94,7 @@ NEZ_RACINE = 6
 #  Seuils
 SEUIL_EAR             = 0.25
 SEUIL_MAR             = 0.5
-SEUIL_INCLINAISON     = 0.15
+SEUIL_INCLINAISON     = 0.10
 SEUIL_TEMPS_YEUX      = 2.0
 SEUIL_TEMPS_BOUCHE    = 1.0
 SEUIL_TEMPS_AVANT     = 2.0   # forward head drop → alarm after 2 seconds
@@ -367,7 +381,7 @@ detecteur = mp_face.FaceMesh(
 )
 
 # ---- Ouvrir la caméra et lire les dimensions réelles ----
-camera = cv2.VideoCapture(0)
+camera = cv2.VideoCapture(1)  # 1 = external USB camera (0 = built-in webcam)
 _ok, _frame = camera.read()
 _cam_h, _cam_w = _frame.shape[:2] if _ok else (480, 640)
 
@@ -407,6 +421,40 @@ alerte_regard_lancee     = False
 alerte_telephone_lancee  = False
 alarme_raison            = None  # quelle condition a déclenché l'alarme en cours
 
+# ---- Eval mode state ----
+EVAL_KEYS = {ord('e'): "YEUX_FERMES", ord('y'): "BAILLEMENT",
+             ord('f'): "TETE_AVANT",  ord('p'): "TELEPHONE"}
+EVAL_TYPES = list(EVAL_KEYS.values())
+
+eval_open     = {t: False for t in EVAL_TYPES}  # window currently open?
+eval_start    = {t: None  for t in EVAL_TYPES}  # when window opened
+eval_detected = {t: False for t in EVAL_TYPES}  # detection fired inside window?
+eval_tp       = {t: 0 for t in EVAL_TYPES}
+eval_fp       = {t: 0 for t in EVAL_TYPES}
+eval_fn       = {t: 0 for t in EVAL_TYPES}
+eval_feedback = []   # [(message, color, expiry_time)]
+
+def eval_mark_fired(atype):
+    """Call this whenever an alert fires. Tracks TP vs FP."""
+    if not EVAL_MODE:
+        return
+    if eval_open[atype]:
+        eval_detected[atype] = True   # fired inside window → potential TP
+    else:
+        eval_fp[atype] += 1           # fired outside window → FP
+
+def eval_close_window(atype):
+    """Call when user presses the key a second time to close the window."""
+    eval_open[atype]  = False
+    eval_start[atype] = None
+    if eval_detected[atype]:
+        eval_tp[atype] += 1
+        eval_feedback.append((f"OK  {atype}", (80, 220, 80), time.time() + 2.5))
+    else:
+        eval_fn[atype] += 1
+        eval_feedback.append((f"MISS  {atype}", (50, 50, 220), time.time() + 2.5))
+    eval_detected[atype] = False
+
 WINDOW_NAME = "DriverGuard v1.0 - Driver Monitoring"
 cv2.namedWindow(WINDOW_NAME)
 cv2.setMouseCallback(WINDOW_NAME, clic_sur_stop, arreter)
@@ -420,7 +468,7 @@ while True:
     hauteur_img, largeur_img = image.shape[:2]
     panneau = 220
 
-    # ── Hardware gate: pause detection while vehicle is stopped ──
+    # Vehicle gate — show camera but pause detection when car is stopped
     if not hw.is_active():
         waiting = image.copy()
         cv2.putText(waiting, "En attente du vehicule...",
@@ -433,6 +481,7 @@ while True:
         if cv2.getWindowProperty(WINDOW_NAME, cv2.WND_PROP_VISIBLE) < 1:
             break
         continue
+
     cadre = cv2.copyMakeBorder(image, 0, 0, 0, panneau, cv2.BORDER_CONSTANT, value=NOIR)
     x_panneau = largeur_img + 10
 
@@ -515,9 +564,11 @@ while True:
                 valeur_yeux = f"Fermes {duree_yeux:.1f}s"
                 if duree_yeux >= SEUIL_TEMPS_YEUX and not alerte_yeux_lancee:
                     alerte_yeux_lancee = True
+                    eval_mark_fired("YEUX_FERMES")
                     compteur_alertes += 1
                     log_alerte("YEUX_FERMES", ear_moyen, mar, angle, duree_yeux)
                     pygame.mixer.music.play(-1)
+                    hw.send_alarm()
                     alarme_active = True
                     alarme_raison  = "YEUX"
                     if time.time() - dernier_sms > DELAI_SMS:
@@ -540,6 +591,7 @@ while True:
                 valeur_bouche = f"Ouverte {duree_bouche:.1f}s"
                 if duree_bouche >= SEUIL_TEMPS_BOUCHE and not alerte_bouche_lancee:
                     alerte_bouche_lancee = True
+                    eval_mark_fired("BAILLEMENT")
                     compteur_alertes += 1
                     log_alerte("BAILLEMENT", ear_moyen, mar, angle, duree_bouche)
                     if not alarme_active:
@@ -567,6 +619,7 @@ while True:
                 valeur_tete = f"Avant {duree_regard:.1f}s"
                 if duree_regard >= SEUIL_TEMPS_AVANT and not alerte_regard_lancee:
                     alerte_regard_lancee = True
+                    eval_mark_fired("TETE_AVANT")
                     compteur_alertes += 1
                     log_alerte("TETE_AVANT", ear_moyen, mar, 0, duree_regard)
                     if not alarme_active:
@@ -608,8 +661,26 @@ while True:
         valeur_yeux   = "Non detecte"
         statut_bouche = "danger"
         valeur_bouche = "Non detecte"
-        statut_tete   = "danger"
-        valeur_tete   = "Non detecte"
+
+        # Face out of frame → treat as head drop forward
+        if temps_regard is None:
+            temps_regard = time.time()
+        duree_absence = time.time() - temps_regard
+        statut_tete = "warning" if duree_absence < SEUIL_TEMPS_AVANT else "danger"
+        valeur_tete = f"Avant {duree_absence:.1f}s"
+        if duree_absence >= SEUIL_TEMPS_AVANT and not alerte_regard_lancee:
+            alerte_regard_lancee = True
+            eval_mark_fired("TETE_AVANT")
+            compteur_alertes += 1
+            log_alerte("TETE_AVANT", 0, 0, 0, duree_absence)
+            if not alarme_active:
+                pygame.mixer.music.play(-1)
+                hw.send_alarm()
+                alarme_active = True
+                alarme_raison = "REGARD"
+            if time.time() - dernier_sms > DELAI_SMS:
+                envoyer_sms("ALERTE DriverGuard : Tête du conducteur hors champ !")
+                dernier_sms = time.time()
 
     # ================================================================
     # 2. YOLO — détection téléphone + filtre proximité visage
@@ -654,10 +725,12 @@ while True:
         dessiner_alerte_telephone(cadre, duree_telephone, largeur_img)
         if duree_telephone >= SEUIL_TEMPS_TELEPHONE and not alerte_telephone_lancee:
             alerte_telephone_lancee = True
+            eval_mark_fired("TELEPHONE")
             compteur_alertes += 1
             log_alerte("TELEPHONE", ear_moyen, mar, angle, duree_telephone)
             if not alarme_active:
                 pygame.mixer.music.play(-1)
+                hw.send_alarm()
                 alarme_active = True
                 alarme_raison = "TELEPHONE"
             if time.time() - dernier_sms > DELAI_SMS:
@@ -707,9 +780,51 @@ while True:
         (x_panneau + 40, hauteur_img - 10),
         cv2.FONT_HERSHEY_SIMPLEX, 0.65, BLANC, 2)
 
+    # ---- Eval mode overlay ----
+    if EVAL_MODE:
+        now = time.time()
+
+        # Active windows — shown at top-left of video
+        ey = 20
+        for atype, is_open in eval_open.items():
+            if is_open:
+                dur = now - eval_start[atype]
+                cv2.rectangle(cadre, (0, ey - 16), (370, ey + 6), (0, 60, 0), -1)
+                cv2.putText(cadre, f"TESTING {atype}  [{dur:.1f}s]",
+                            (6, ey), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (80, 220, 80), 2)
+                ey += 28
+
+        # Feedback messages (OK / MISS)
+        eval_feedback[:] = [f for f in eval_feedback if f[2] > now]
+        for i, (msg, color, _) in enumerate(eval_feedback):
+            cv2.rectangle(cadre, (0, hauteur_img//2 - 22 + i*36),
+                          (420, hauteur_img//2 + 14 + i*36), (20, 20, 20), -1)
+            cv2.putText(cadre, msg,
+                        (8, hauteur_img//2 + 8 + i*36),
+                        cv2.FONT_HERSHEY_DUPLEX, 0.8, color, 2)
+
+        # Key hints at bottom of video
+        cv2.rectangle(cadre, (0, hauteur_img - 22), (largeur_img, hauteur_img), (20,20,20), -1)
+        cv2.putText(cadre, "EVAL:  E=eyes  Y=yawn  F=head-fwd  P=phone",
+                    (6, hauteur_img - 6), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (160,160,160), 1)
+
     cv2.imshow(WINDOW_NAME, cadre)
 
     key = cv2.waitKey(1) & 0xFF
+
+    # ---- Eval mode key handling ----
+    if EVAL_MODE and key in EVAL_KEYS:
+        atype = EVAL_KEYS[key]
+        if not eval_open[atype]:
+            eval_open[atype]     = True
+            eval_start[atype]    = time.time()
+            eval_detected[atype] = False
+            print(f"[EVAL] Window opened: {atype}")
+        else:
+            print(f"[EVAL] Window closed: {atype} — "
+                  f"{'DETECTED ✓' if eval_detected[atype] else 'MISSED ✗'}")
+            eval_close_window(atype)
+
     if (key == ord('q') or key == 27           # Q or ESC
             or arreter[0]                       # STOP button clicked
             or cv2.getWindowProperty(WINDOW_NAME, cv2.WND_PROP_VISIBLE) < 1):  # X button
@@ -728,5 +843,50 @@ print(f"{'='*52}\n")
 camera.release()
 cv2.destroyAllWindows()
 pygame.mixer.quit()
+
+
+# ---- Eval results ----
+if EVAL_MODE:
+    print(f"\n{'='*58}")
+    print(f"  EVALUATION RESULTS")
+    print(f"{'='*58}")
+    print(f"  {'Alert':<20} {'Prec':>7} {'Recall':>7} {'F1':>7}"
+          f"  {'TP':>3} {'FP':>3} {'FN':>3}")
+    print(f"  {'-'*54}")
+    totals = [0.0, 0.0, 0.0]
+    count  = 0
+    for atype in EVAL_TYPES:
+        tp = eval_tp[atype]; fp = eval_fp[atype]; fn = eval_fn[atype]
+        if tp + fp + fn == 0:
+            continue
+        p  = tp/(tp+fp) if tp+fp > 0 else 0.0
+        r  = tp/(tp+fn) if tp+fn > 0 else 0.0
+        f1 = 2*p*r/(p+r) if p+r > 0 else 0.0
+        print(f"  {atype:<20} {p:>6.0%} {r:>7.0%} {f1:>7.0%}"
+              f"  {tp:>3} {fp:>3} {fn:>3}")
+        totals[0] += p; totals[1] += r; totals[2] += f1
+        count += 1
+    if count:
+        print(f"  {'-'*54}")
+        print(f"  {'MACRO AVERAGE':<20} {totals[0]/count:>6.0%}"
+              f" {totals[1]/count:>7.0%} {totals[2]/count:>7.0%}")
+    print(f"{'='*58}\n")
+
+    # Save results to CSV
+    eval_csv = os.path.join(LOG_DIR,
+                            f"eval_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv")
+    with open(eval_csv, "w", newline="", encoding="utf-8") as f:
+        w = csv.writer(f)
+        w.writerow(["alert_type", "precision", "recall", "f1", "tp", "fp", "fn"])
+        for atype in EVAL_TYPES:
+            tp = eval_tp[atype]; fp = eval_fp[atype]; fn = eval_fn[atype]
+            if tp + fp + fn == 0:
+                continue
+            p  = tp/(tp+fp) if tp+fp > 0 else 0.0
+            r  = tp/(tp+fn) if tp+fn > 0 else 0.0
+            f1 = 2*p*r/(p+r) if p+r > 0 else 0.0
+            w.writerow([atype, f"{p:.4f}", f"{r:.4f}", f"{f1:.4f}", tp, fp, fn])
+    print(f"  Eval results saved: {eval_csv}")
+
 hw.disconnect()
 print("Programme arrêté proprement ✅")

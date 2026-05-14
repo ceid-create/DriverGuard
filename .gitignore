@@ -4,6 +4,13 @@ config.py
 # Session logs
 logs/
 
+# Evaluation files
+eval_video.mp4
+ground_truth.csv
+CV_Demo.mp4
+*.mp4
+*.csv
+
 # Python cache
 __pycache__/
 *.py[cod]
